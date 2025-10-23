@@ -13,19 +13,56 @@ type MetaEvent = {
 };
 
 async function fetchMetabaseRows(): Promise<MetabaseRow[]> {
-  const baseUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000";
-  const fetchUrl = new URL(`${baseUrl}/api/capi/fetch-metabase`);
-  const bypassToken = process.env.VERCEL_PROTECTION_BYPASS_TOKEN;
+  const site = process.env.METABASE_SITE_URL!;
+  const token = process.env.METABASE_SESSION_TOKEN || process.env.METABASE_API_TOKEN;
+  if (!token) throw new Error("Missing METABASE_SESSION_TOKEN");
+  const questionId = process.env.METABASE_QUESTION_ID!;
+  const dateStart = process.env.METABASE_DATE_START;
+  const dateEnd = process.env.METABASE_DATE_END;
+  const botId = process.env.METABASE_BOT_ID;
+  const dateStartTag = process.env.METABASE_DATE_START_TAG || "date_start";
+  const dateEndTag = process.env.METABASE_DATE_END_TAG || "date_end";
+  const botIdTag = process.env.METABASE_BOT_ID_TAG || "bot_id";
 
-  if (bypassToken && process.env.VERCEL_URL) {
-    fetchUrl.searchParams.set("x-vercel-set-bypass-cookie", "true");
-    fetchUrl.searchParams.set("x-vercel-protection-bypass", bypassToken);
+  const url = `${site}/api/card/${questionId}/query/json`;
+  const parameters: Array<Record<string, unknown>> = [];
+
+  if (dateStart) {
+    parameters.push({
+      type: "category",
+      target: ["variable", ["template-tag", dateStartTag]],
+      value: dateStart
+    });
+  }
+  if (dateEnd) {
+    parameters.push({
+      type: "category",
+      target: ["variable", ["template-tag", dateEndTag]],
+      value: dateEnd
+    });
+  }
+  if (botId) {
+    parameters.push({
+      type: "category",
+      target: ["variable", ["template-tag", botIdTag]],
+      value: botId
+    });
   }
 
-  const r = await fetch(fetchUrl.toString(), { method: "GET" });
-  if (!r.ok) throw new Error(`fetch-metabase failed ${r.status}`);
-  const json = await r.json();
-  return json.rows as MetabaseRow[];
+  const body = parameters.length > 0 ? { parameters } : {};
+
+  return await withRetries(async () => {
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Metabase-Session": token },
+      body: JSON.stringify(body)
+    });
+    if (!r.ok) {
+      const errText = await r.text().catch(() => "");
+      throw new Error(`Metabase ${r.status}: ${errText || "unknown error"}`);
+    }
+    return (await r.json()) as MetabaseRow[];
+  });
 }
 
 async function sendMetaEvents(payload: { data: MetaEvent[] }) {
