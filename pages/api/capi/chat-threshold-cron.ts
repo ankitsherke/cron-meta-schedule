@@ -15,14 +15,14 @@ type MetaEvent = {
 async function fetchMetabaseRows(): Promise<MetabaseRow[]> {
   const baseUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000";
   const fetchUrl = new URL(`${baseUrl}/api/capi/fetch-metabase`);
-  const headers: Record<string, string> = {};
   const bypassToken = process.env.VERCEL_PROTECTION_BYPASS_TOKEN;
 
-  if (bypassToken) {
-    headers["x-vercel-protection-bypass"] = bypassToken;
+  if (bypassToken && process.env.VERCEL_URL) {
+    fetchUrl.searchParams.set("x-vercel-set-bypass-cookie", "true");
+    fetchUrl.searchParams.set("x-vercel-protection-bypass", bypassToken);
   }
 
-  const r = await fetch(fetchUrl.toString(), { method: "GET", headers });
+  const r = await fetch(fetchUrl.toString(), { method: "GET" });
   if (!r.ok) throw new Error(`fetch-metabase failed ${r.status}`);
   const json = await r.json();
   return json.rows as MetabaseRow[];
