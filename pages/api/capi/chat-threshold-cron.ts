@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { eventIdFor, isTestNumber, MetabaseRow, normalizePhoneToE164, sha256LowerHex, withRetries } from "../../../lib/capi";
-import { kv } from "@vercel/kv";
+import { getRedisClient } from "../../../lib/redis";
 
 type MetaEvent = {
   event_name: string;
@@ -14,7 +14,15 @@ type MetaEvent = {
 
 async function fetchMetabaseRows(): Promise<MetabaseRow[]> {
   const baseUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000";
-  const r = await fetch(`${baseUrl}/api/capi/fetch-metabase`, { method: "GET" });
+  const fetchUrl = new URL(`${baseUrl}/api/capi/fetch-metabase`);
+  const headers: Record<string, string> = {};
+  const bypassToken = process.env.VERCEL_PROTECTION_BYPASS_TOKEN;
+
+  if (bypassToken) {
+    headers["x-vercel-protection-bypass"] = bypassToken;
+  }
+
+  const r = await fetch(fetchUrl.toString(), { method: "GET", headers });
   if (!r.ok) throw new Error(`fetch-metabase failed ${r.status}`);
   const json = await r.json();
   return json.rows as MetabaseRow[];
@@ -41,14 +49,19 @@ async function sendMetaEvents(payload: { data: MetaEvent[] }) {
 }
 
 async function alreadyFired(sessionId: string, experiment: string): Promise<boolean> {
+  const client = await getRedisClient();
   const key = `capi:chat-threshold:${experiment}:${sessionId}`;
-  const v = await kv.get<string>(key);
-  return Boolean(v);
+  const exists = await client.exists(key);
+  return exists === 1;
 }
 
 async function markFired(sessionId: string, experiment: string) {
+  const client = await getRedisClient();
   const key = `capi:chat-threshold:${experiment}:${sessionId}`;
-  await kv.set(key, new Date().toISOString(), { ex: 60 * 60 * 24 * 180 });
+  await client.set(key, new Date().toISOString(), { EX: 60 * 60 * 24 * 180 });
+  if (process.env.NODE_ENV !== "production") {
+    console.log("marked fired", key);
+  }
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {

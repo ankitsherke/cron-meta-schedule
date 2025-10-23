@@ -7,18 +7,39 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const token = process.env.METABASE_SESSION_TOKEN || process.env.METABASE_API_TOKEN;
     if (!token) throw new Error("Missing METABASE_SESSION_TOKEN");
     const questionId = process.env.METABASE_QUESTION_ID!;
-    const dateStart = process.env.METABASE_DATE_START!;
-    const dateEnd = process.env.METABASE_DATE_END!;
-    const botId = process.env.METABASE_BOT_ID!;
+    const dateStart = process.env.METABASE_DATE_START;
+    const dateEnd = process.env.METABASE_DATE_END;
+    const botId = process.env.METABASE_BOT_ID;
+    const dateStartTag = process.env.METABASE_DATE_START_TAG || "date_start";
+    const dateEndTag = process.env.METABASE_DATE_END_TAG || "date_end";
+    const botIdTag = process.env.METABASE_BOT_ID_TAG || "bot_id";
 
     const url = `${site}/api/card/${questionId}/query/json`;
-    const body = {
-      parameters: [
-        { type: "category", target: ["variable", ["template-tag", "date_start"]], value: dateStart },
-        { type: "category", target: ["variable", ["template-tag", "date_end"]], value: dateEnd },
-        { type: "category", target: ["variable", ["template-tag", "bot_id"]], value: botId }
-      ]
-    };
+    const parameters: Array<Record<string, unknown>> = [];
+
+    if (dateStart) {
+      parameters.push({
+        type: "category",
+        target: ["variable", ["template-tag", dateStartTag]],
+        value: dateStart
+      });
+    }
+    if (dateEnd) {
+      parameters.push({
+        type: "category",
+        target: ["variable", ["template-tag", dateEndTag]],
+        value: dateEnd
+      });
+    }
+    if (botId) {
+      parameters.push({
+        type: "category",
+        target: ["variable", ["template-tag", botIdTag]],
+        value: botId
+      });
+    }
+
+    const body = parameters.length > 0 ? { parameters } : {};
 
     const data = await withRetries(async () => {
       const r = await fetch(url, {
@@ -26,7 +47,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         headers: { "Content-Type": "application/json", "X-Metabase-Session": token },
         body: JSON.stringify(body)
       });
-      if (!r.ok) throw new Error(`Metabase ${r.status}`);
+      if (!r.ok) {
+        const errText = await r.text().catch(() => "");
+        throw new Error(`Metabase ${r.status}: ${errText || "unknown error"}`);
+      }
       return (await r.json()) as MetabaseRow[];
     });
 

@@ -1,5 +1,1 @@
-{
-  "crons": [
-    { "path": "/api/capi/chat-threshold-cron", "schedule": "*/5 * * * *" }
-  ]
-}
+{}
